@@ -434,7 +434,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3.2';
+const VER = 'v0.3.3';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -661,9 +661,11 @@ function ensureAudio() {
     if (!AC) {
       AC = new (window.AudioContext || window.webkitAudioContext)();
       // master → gentle compressor (punchier drums, no clipping); music also feeds a small hall reverb
-      const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3.5; comp.attack.value = .005; comp.release.value = .2; comp.connect(AC.destination);
+      // two separate paths: a storm of hit sounds is squeezed on its own and can no longer pump the music down
+      const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 2.5; comp.attack.value = .01; comp.release.value = .3; comp.connect(AC.destination);
       master = AC.createGain(); master.gain.value = .95; master.connect(comp);
-      sfxBus = AC.createGain(); sfxBus.gain.value = STORE.set.sfx ? .8 : 0; sfxBus.connect(master);
+      const sComp = AC.createDynamicsCompressor(); sComp.threshold.value = -20; sComp.ratio.value = 6; sComp.attack.value = .003; sComp.release.value = .15; sComp.connect(AC.destination);
+      sfxBus = AC.createGain(); sfxBus.gain.value = STORE.set.sfx ? .8 : 0; sfxBus.connect(sComp);
       musBus = AC.createGain(); musBus.gain.value = STORE.set.music ? .3 : 0; musBus.connect(master);
       try { const len = AC.sampleRate * 1.1 | 0, ir = AC.createBuffer(2, len, AC.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); } const conv = AC.createConvolver(); conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = .32; musBus.connect(conv).connect(wet).connect(master); } catch (e) { }
       const n = AC.sampleRate * 2; noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
@@ -675,7 +677,7 @@ function ensureAudio() {
 const lastS = {};
 function can(name, gap) { const t = performance.now(); if (t - (lastS[name] || 0) < gap) return false; lastS[name] = t; return true; }
 let VOX = 0;
-function voice(src, bus, end) { if (bus && bus !== sfxBus) return true; if (VOX > 26) return false; VOX++; src.onended = () => { VOX = Math.max(0, VOX - 1); }; return true; }
+function voice(src, bus, end) { if (bus && bus !== sfxBus) return true; if (VOX > 20) return false; VOX++; src.onended = () => { VOX = Math.max(0, VOX - 1); }; return true; }
 function tone(f, d, type, v, slide, when, bus) {
   if (!AC) return; const t = (when || AC.currentTime), o = AC.createOscillator(), g = AC.createGain();
   o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f * slide), t + d);
@@ -690,8 +692,8 @@ function noise(d, v, type, fq, when, bus, q) {
 }
 const SFX = {
   bow() { if (!can('bow', 110)) return; noise(.07, .12, 'bandpass', 2600, 0, 0, 2); tone(190, .09, 'triangle', .07, .55); },
-  hit() { if (!can('hit', 55)) return; tone(260 + Math.random() * 80, .06, 'square', .035, .6); },
-  kill() { if (!can('kill', 60)) return; tone(880, .07, 'triangle', .06); tone(1320, .1, 'triangle', .05, 1, AC && AC.currentTime + .05); },
+  hit() { if (!can('hit', 85)) return; tone(260 + Math.random() * 80, .06, 'square', .035, .6); },
+  kill() { if (!can('kill', 80)) return; tone(880, .07, 'triangle', .06); tone(1320, .1, 'triangle', .05, 1, AC && AC.currentTime + .05); },
   orb() { if (!can('orb', 75)) return; tone(1500 + Math.random() * 300, .06, 'sine', .035); },
   hurt() { tone(230, .25, 'sawtooth', .07, .45); noise(.12, .1, 'lowpass', 800); },
   shield() { tone(1250, .25, 'triangle', .06, 1.3); tone(1870, .2, 'sine', .04); },
@@ -2191,11 +2193,16 @@ function volley(a) {
   if (dg >= 2) { shootArrow(P.x, P.y - 4, a - .95, dmg * .75); shootArrow(P.x, P.y - 4, a + .95, dmg * .75); }
 }
 function shootArrow(x, y, a, dmg) {
-  if (G.arrows.length >= 140) return;
+  if (G.arrows.length >= 90) return;
   const gd = st('guide'), sp = gd ? 470 : 560, sk = st('fire') ? 'arrowFire' : st('frost') ? 'arrowIce' : st('poison') ? 'arrowPoison' : st('chain') ? 'arrowBolt' : 'arrow';
   const A = { x: x + Math.cos(a) * 10, y: y + Math.sin(a) * 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, a, dmg, crit: rnd() < .15 * st('crit'), pierce: st('pierce'), bounce: st('bounce'), hits: [], s: sk, life: 1.6 };
   if (st('giantA')) { A.dmg *= 1.5; A.sc = 1.75; A.big = 6; }
-  if (gd) { A.guide = 1; A.left = 1 + gd + st('pierce'); A.hitT = {}; A.life = 2.7; A.bounce = 0; }
+  if (gd) {
+    A.guide = 1; A.left = 1 + gd + st('pierce'); A.hitT = {}; A.life = 2.7; A.bounce = 0;
+    // keep the swarm of guided arrows in check on a phone: past 32 in the air, the oldest one bows out
+    let n = 0, old = -1; for (let i = 0; i < G.arrows.length; i++) if (G.arrows[i].guide) { n++; if (old < 0) old = i; }
+    if (n >= 32 && old >= 0) G.arrows.splice(old, 1);
+  }
   G.arrows.push(A);
 }
 function hurtPlayer(dmg, src) {
@@ -2390,6 +2397,7 @@ function updateArrows(dt) {
     if (a.guide) {
       // Eros' guided arrow: it turns toward the nearest foe, passes through, and swings back for another pass
       if (!a.tg || a.tg.dead || (a.hitT[a.tg.id] !== undefined && G.t - a.hitT[a.tg.id] < .32)) a.tg = guideTarget(a);
+      if (!a.tg) a.life = Math.min(a.life, .45);   // nothing left to chase: fade out instead of wandering the field
       if (a.tg) { const want = Math.atan2(a.tg.y - a.y, a.tg.x - a.x); let da = want - a.a; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU; a.a += clamp(da, -7.5 * dt, 7.5 * dt); a.vx = Math.cos(a.a) * 470; a.vy = Math.sin(a.a) * 470; }
     }
     a.x += a.vx * dt; a.y += a.vy * dt; a.life -= dt;
@@ -3854,14 +3862,14 @@ function battleDraw() {
   if (G.beams) for (const b of G.beams) { const p = b.t / b.T, w = b.w * (1 - .35 * p); ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a); ctx.globalAlpha = 1 - p * .5; ctx.fillStyle = b.fire ? 'rgba(255,120,40,.65)' : 'rgba(120,200,255,.6)'; ctx.fillRect(0, -w / 2, b.len, w); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = b.fire ? 'rgba(255,230,140,.7)' : 'rgba(220,245,255,.65)'; ctx.fillRect(0, -w * .18, b.len, w * .36); ctx.globalCompositeOperation = 'source-over'; ctx.restore(); ctx.globalAlpha = 1; }
   if (G.wall) { const W = G.wall, l = W.gap - W.w / 2, r = W.gap + W.w / 2, wb = S.waveBand; ctx.drawImage(wb.c, 0, 0, l * K, wb.c.height, 0, W.y - 25, l, 50); ctx.drawImage(wb.c, r * K, 0, (LW - r) * K, wb.c.height, r, W.y - 25, LW - r, 50); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .6; dspr(S.gGreen, W.gap, W.y, 1.6); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
   // projectiles
-  const has3D = !!SH.arrow, trail = G.fxTier && hi;
+  const nA = G.arrows.length, has3D = !!SH.arrow, trail = G.fxTier && hi && nA < 30, glowN = nA > 40 ? 1 : nA > 20 ? 2 : 3, shad = nA < 36;   // a crowded sky gets lighter trails and no arrow shadows
   for (const a of G.arrows) {
     if (a.sun || a.guide || trail) {
       ctx.globalCompositeOperation = 'lighter'; const gs = S[a.guide ? 'gBlue' : a.sun ? 'gGold' : GLOW_OF[a.s] || 'gGold'];
-      for (let k = 1; k <= (a.guide || a.sun ? 3 : 2); k++) { ctx.globalAlpha = (a.guide || a.sun ? .5 : .32) / k; dspr(gs, a.x - a.vx * .022 * k, a.y - a.vy * .022 * k - 4, (a.sun ? 1.1 : .75) - k * .12); }
+      for (let k = 1; k <= Math.min(glowN, a.guide || a.sun ? 3 : 2); k++) { ctx.globalAlpha = (a.guide || a.sun ? .5 : .32) / k; dspr(gs, a.x - a.vx * .022 * k, a.y - a.vy * .022 * k - 4, (a.sun ? 1.1 : .75) - k * .12); }
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
-    if (has3D) { drawShadow(a.x, a.y + 5, 6 * (a.sc || 1)); drawProj(a.s, a.x, a.y, a.a, 7, a.sc); continue; }
+    if (has3D) { if (shad) drawShadow(a.x, a.y + 5, 6 * (a.sc || 1)); drawProj(a.s, a.x, a.y, a.a, 7, a.sc); continue; }
     const c = Math.cos(a.a), s = Math.sin(a.a), sp = S[a.s]; ctx.setTransform(K * c, K * s, -K * s, K * c, K * (a.x + sx), K * (a.y + sy)); ctx.drawImage(sp.c, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
   }
   T0();
