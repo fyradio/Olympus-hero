@@ -434,7 +434,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3';
+const VER = 'v0.3.2';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -582,6 +582,7 @@ function stopLoop() { running = false; if (raf) cancelAnimationFrame(raf); raf =
 function frame(now) {
   if (!running) return;
   raf = requestAnimationFrame(frame);
+  if (MUS.timer && now - (MUS.pumpAt || 0) > 120) { MUS.pumpAt = now; try { musPump(); } catch (e) { } }   // keep the music topped up even if timers lag
   const iv = 1000 / STORE.set.fps;
   if (now - lastF < iv - 4) return;            // skip display refreshes we don't need (120Hz screens etc.)
   lastF = now;
@@ -664,8 +665,8 @@ function ensureAudio() {
       master = AC.createGain(); master.gain.value = .95; master.connect(comp);
       sfxBus = AC.createGain(); sfxBus.gain.value = STORE.set.sfx ? .8 : 0; sfxBus.connect(master);
       musBus = AC.createGain(); musBus.gain.value = STORE.set.music ? .3 : 0; musBus.connect(master);
-      try { const len = AC.sampleRate * 1.6 | 0, ir = AC.createBuffer(2, len, AC.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); } const conv = AC.createConvolver(); conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = .32; musBus.connect(conv).connect(wet).connect(master); } catch (e) { }
-      const n = AC.sampleRate * .6; noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+      try { const len = AC.sampleRate * 1.1 | 0, ir = AC.createBuffer(2, len, AC.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); } const conv = AC.createConvolver(); conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = .32; musBus.connect(conv).connect(wet).connect(master); } catch (e) { }
+      const n = AC.sampleRate * 2; noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
       const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     }
     if (AC.state === 'suspended') AC.resume();
@@ -673,17 +674,19 @@ function ensureAudio() {
 }
 const lastS = {};
 function can(name, gap) { const t = performance.now(); if (t - (lastS[name] || 0) < gap) return false; lastS[name] = t; return true; }
+let VOX = 0;
+function voice(src, bus, end) { if (bus && bus !== sfxBus) return true; if (VOX > 26) return false; VOX++; src.onended = () => { VOX = Math.max(0, VOX - 1); }; return true; }
 function tone(f, d, type, v, slide, when, bus) {
   if (!AC) return; const t = (when || AC.currentTime), o = AC.createOscillator(), g = AC.createGain();
   o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f * slide), t + d);
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v || .1, t + .006); g.gain.exponentialRampToValueAtTime(.0001, t + d);
-  o.connect(g).connect(bus || sfxBus); o.start(t); o.stop(t + d + .03);
+  if (!voice(o, bus)) return; o.connect(g).connect(bus || sfxBus); o.start(t); o.stop(t + d + .03);
 }
 function noise(d, v, type, fq, when, bus, q) {
   if (!AC) return; const t = when || AC.currentTime, s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
   s.buffer = noiseBuf; f.type = type || 'bandpass'; f.frequency.value = fq || 1000; f.Q.value = q || 1;
   g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d);
-  s.connect(f).connect(g).connect(bus || sfxBus); s.start(t, Math.random() * .3); s.stop(t + d + .03);
+  if (!voice(s, bus)) return; s.connect(f).connect(g).connect(bus || sfxBus); s.start(t, Math.random() * .3); s.stop(t + d + .03);
 }
 const SFX = {
   bow() { if (!can('bow', 110)) return; noise(.07, .12, 'bandpass', 2600, 0, 0, 2); tone(190, .09, 'triangle', .07, .55); },
@@ -694,7 +697,7 @@ const SFX = {
   shield() { tone(1250, .25, 'triangle', .06, 1.3); tone(1870, .2, 'sine', .04); },
   level() { if (!AC) return; [523, 659, 784, 1047].forEach((f, i) => tone(f, .18, 'triangle', .07, 1, AC.currentTime + i * .07)); },
   card() { if (!AC) return; [784, 1175, 1568].forEach((f, i) => tone(f, .3, 'sine', .06, 1, AC.currentTime + i * .05)); },
-  bolt() { if (!can('bolt', 90)) return; noise(.25, .22, 'highpass', 2500); tone(90, .3, 'sawtooth', .07, .4); },
+  bolt() { if (!can('bolt', 120) || !AC) return; const t = AC.currentTime; noise(.1, .2, 'bandpass', 1500, t, 0, .7); noise(.06, .07, 'lowpass', 4200, t + .012); tone(72, .38, 'sine', .14, .5, t); if (can('rumble', 380)) { noise(1.1, .12, 'lowpass', 240, t + .04, 0, .6); noise(.8, .08, 'lowpass', 120, t + .1, 0, .6); } },
   wave() { noise(.9, .16, 'lowpass', 700); noise(.6, .08, 'bandpass', 2400); },
   boom() { if (!can('boom', 120)) return; tone(110, .4, 'sine', .16, .35); noise(.35, .18, 'lowpass', 500); },
   roar() { tone(120, 1.1, 'sawtooth', .1, .55); noise(1, .16, 'lowpass', 420); },
@@ -780,7 +783,7 @@ function strings(ms, t, d, v, bright) {
   const f = AC.createBiquadFilter(), g = AC.createGain(); f.type = 'lowpass'; f.frequency.value = bright ? 2600 : 1500; f.Q.value = .7;
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + Math.min(.35, d * .3)); g.gain.setValueAtTime(v, t + d * .75); g.gain.exponentialRampToValueAtTime(.0001, t + d + .25);
   f.connect(g).connect(musBus);
-  for (const m of ms) for (const det of [-9, 0, 8]) { const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mf(m); o.detune.value = det; vib().connect(o.detune); o.connect(f); o.start(t); o.stop(t + d + .3); }
+  for (const m of ms) for (const det of [-8, 7]) { const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mf(m); o.detune.value = det; const V = vib(); V.connect(o.detune); o.onended = () => { try { V.disconnect(o.detune); } catch (e) { } }; o.connect(f); o.start(t); o.stop(t + d + .3); }
 }
 function spicc(m, t, v) { const o = AC.createOscillator(), f = AC.createBiquadFilter(), g = AC.createGain(); o.type = 'sawtooth'; o.frequency.value = mf(m); f.type = 'bandpass'; f.frequency.value = mf(m) * 2.2; f.Q.value = 1.2; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + .13); o.connect(f).connect(g).connect(musBus); o.start(t); o.stop(t + .16); }
 function brass(ms, t, d, v) { const f = AC.createBiquadFilter(), g = AC.createGain(); f.type = 'lowpass'; f.frequency.setValueAtTime(500, t); f.frequency.linearRampToValueAtTime(2200, t + .08); f.frequency.exponentialRampToValueAtTime(900, t + d); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .04); g.gain.exponentialRampToValueAtTime(.0001, t + d); f.connect(g).connect(musBus); for (const m of ms) { const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mf(m); o.connect(f); o.start(t); o.stop(t + d + .05); } }
@@ -810,16 +813,18 @@ function orch(th, b, s, t) {
 function musicTheme(name) { if (MUS.theme !== name) { MUS.theme = name; MUS.step = 0; MUS.bar = 0; } }
 function musicStart() {
   if (!AC || MUS.timer) return; MUS.next = AC.currentTime + .1;
-  MUS.timer = setInterval(() => {
+  MUS.timer = setInterval(musPump, 70);
+}
+function musPump() {
     if (!AC || AC.state !== 'running' || !STORE.set.music || document.hidden) { if (AC) MUS.next = AC.currentTime + .1; return; }
+    MUS.gaps = MUS.gaps || 0; if (MUS.next < AC.currentTime) { MUS.gaps++; MUS.lateMax = Math.max(MUS.lateMax || 0, AC.currentTime - MUS.next); }
     if (MUS.next < AC.currentTime - .3) MUS.next = AC.currentTime + .05;
-    while (MUS.next < AC.currentTime + .25) {
+    while (MUS.next < AC.currentTime + .6) {
       const th = THEMES[MUS.theme];
       th.play(MUS.bar % 4, MUS.step, MUS.next); try { orch(th, MUS.bar % 4, MUS.step, MUS.next); } catch (e) { if (!MUS.warned) { MUS.warned = 1; console.warn("orch", e && e.message); } }
       MUS.next += th.sp; MUS.step++;
       if (MUS.step >= th.steps) { MUS.step = 0; MUS.bar = (MUS.bar + 1) % 16; }
     }
-  }, 70);
 }
 // "6 7!" — spoken by the device voice, with a synth fallback
 // "Six seven!" spoken in English. Phones (iOS especially) only let a page talk after the player has touched it once,
@@ -5492,7 +5497,7 @@ function boot() {
   addEventListener('orientationchange', () => setTimeout(layout, 250));
   app.addEventListener('pointerdown', () => { ensureAudio(); speechUnlock(); if (STORE.set.music) musicStart(); }, { once: true });
   window.__playC = (B, shots) => { stopLoop(); playCine(B, shots, null, () => { }); };
-  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST };
+  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST, MUS, get AC() { return AC; } };
 }
 // test helper: run the game logic fast without drawing (used for automated play-throughs)
 function sim(seconds, bot) {
