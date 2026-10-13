@@ -434,7 +434,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3.3';
+const VER = 'v0.3.4';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -658,26 +658,39 @@ let onEscape = () => { };
 let AC = null, master = null, sfxBus = null, musBus = null, noiseBuf = null;
 function ensureAudio() {
   try {
-    if (!AC) {
-      AC = new (window.AudioContext || window.webkitAudioContext)();
-      // master → gentle compressor (punchier drums, no clipping); music also feeds a small hall reverb
-      // two separate paths: a storm of hit sounds is squeezed on its own and can no longer pump the music down
-      const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 2.5; comp.attack.value = .01; comp.release.value = .3; comp.connect(AC.destination);
-      master = AC.createGain(); master.gain.value = .95; master.connect(comp);
-      const sComp = AC.createDynamicsCompressor(); sComp.threshold.value = -20; sComp.ratio.value = 6; sComp.attack.value = .003; sComp.release.value = .15; sComp.connect(AC.destination);
-      sfxBus = AC.createGain(); sfxBus.gain.value = STORE.set.sfx ? .8 : 0; sfxBus.connect(sComp);
-      musBus = AC.createGain(); musBus.gain.value = STORE.set.music ? .3 : 0; musBus.connect(master);
-      try { const len = AC.sampleRate * 1.1 | 0, ir = AC.createBuffer(2, len, AC.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); } const conv = AC.createConvolver(); conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = .32; musBus.connect(conv).connect(wet).connect(master); } catch (e) { }
-      const n = AC.sampleRate * 2; noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
-      const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-    }
+    if (!AC) { AC = new (window.AudioContext || window.webkitAudioContext)(); buildGraph(); setTimeout(bakeStart, 400); }
     if (AC.state === 'suspended') AC.resume();
   } catch (e) { }
+}
+// the mixing graph: music and effects each get their own compressor; music also feeds a small hall reverb
+let REVERB = false;
+function buildGraph() {
+  const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 2.5; comp.attack.value = .01; comp.release.value = .3; comp.connect(AC.destination);
+  master = AC.createGain(); master.gain.value = .95; master.connect(comp);
+  const sComp = AC.createDynamicsCompressor(); sComp.threshold.value = -20; sComp.ratio.value = 6; sComp.attack.value = .003; sComp.release.value = .15; sComp.connect(AC.destination);
+  sfxBus = AC.createGain(); sfxBus.gain.value = STORE.set.sfx ? .8 : 0; sfxBus.connect(sComp);
+  musBus = AC.createGain(); musBus.gain.value = STORE.set.music ? .3 : 0; musBus.connect(master);
+  if (REVERB) try { const len = AC.sampleRate * 1.1 | 0, ir = AC.createBuffer(2, len, AC.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); } const conv = AC.createConvolver(); conv.buffer = ir; const wet = AC.createGain(); wet.gain.value = .32; musBus.connect(conv).connect(wet).connect(master); } catch (e) { }
+  const n = AC.sampleRate * 2; noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+}
+// test hook: render `secs` of a theme (plus a stream of hit sounds) offline and report how long the audio work took
+async function audioBench(theme, secs, hitsPerSec, opt) {
+  opt = opt || {}; const keep = [AC, master, sfxBus, musBus, noiseBuf, VIB, REVERB, MUS.theme, MUS.step, MUS.bar, VOX];
+  const sr = opt.sr || 48000; AC = new OfflineAudioContext(2, sr * secs, sr); VIB = null; REVERB = !opt.noReverb; buildGraph(); sfxBus.gain.value = musBus.gain.value = .5;
+  MUS.theme = theme; MUS.step = 0; MUS.bar = 0; let t = .02, voices = 0;
+  const cnt = AC.createOscillator; AC.createOscillator = function () { voices++; return cnt.call(this); };
+  while (t < secs - .5) { const th = THEMES[theme]; th.play(MUS.bar % 4, MUS.step, t); if (!opt.noOrch) orch(th, MUS.bar % 4, MUS.step, t); t += th.sp; MUS.step++; if (MUS.step >= th.steps) { MUS.step = 0; MUS.bar = (MUS.bar + 1) % 16; } }
+  VOX = -1e9; for (let h = .05; hitsPerSec && h < secs - .5; h += 1 / hitsPerSec) { tone(260 + Math.random() * 80, .06, 'square', .035, .6, h); if (Math.random() < .4) { tone(880, .07, 'triangle', .06, 1, h); tone(1320, .1, 'triangle', .05, 1, h + .05); } }
+  const t0 = performance.now(); await AC.startRendering(); const ms = performance.now() - t0;
+  [AC, master, sfxBus, musBus, noiseBuf, VIB, REVERB, MUS.theme, MUS.step, MUS.bar, VOX] = keep;
+  return { ms: Math.round(ms), load: +(ms / (secs * 1000)).toFixed(3), voices };
 }
 const lastS = {};
 function can(name, gap) { const t = performance.now(); if (t - (lastS[name] || 0) < gap) return false; lastS[name] = t; return true; }
 let VOX = 0;
-function voice(src, bus, end) { if (bus && bus !== sfxBus) return true; if (VOX > 20) return false; VOX++; src.onended = () => { VOX = Math.max(0, VOX - 1); }; return true; }
+function voice(src, bus, end) { if (VOX < -1e8 || (bus && bus !== sfxBus)) return true;   // (while baking, nothing is counted)
+  if (VOX > 20) return false; VOX++; src.onended = () => { VOX = Math.max(0, VOX - 1); }; return true; }
 function tone(f, d, type, v, slide, when, bus) {
   if (!AC) return; const t = (when || AC.currentTime), o = AC.createOscillator(), g = AC.createGain();
   o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f * slide), t + d);
@@ -812,13 +825,18 @@ function orch(th, b, s, t) {
   if (b === 3 && s >= n - 3) tom(t, [200, 160, 120][s - (n - 3)], .2);
   if (bar % 8 === 7 && s === n - 1) { taiko(t, .35); taiko(t + th.sp / 2, .3); }
 }
-function musicTheme(name) { if (MUS.theme !== name) { MUS.theme = name; MUS.step = 0; MUS.bar = 0; } }
+function musicTheme(name) {
+  if (MUS.theme !== name) { MUS.theme = name; MUS.step = 0; MUS.bar = 0; }
+  if (!AC) return;
+  if (LOOPS[name]) { if (!MUS.src || MUS.src.name !== name) loopStart(name); }
+  else { loopStop(); bakeTheme(name, true); }
+}
 function musicStart() {
   if (!AC || MUS.timer) return; MUS.next = AC.currentTime + .1;
   MUS.timer = setInterval(musPump, 70);
 }
 function musPump() {
-    if (!AC || AC.state !== 'running' || !STORE.set.music || document.hidden) { if (AC) MUS.next = AC.currentTime + .1; return; }
+    if (!AC || AC.state !== 'running' || !STORE.set.music || document.hidden || MUS.src) { if (AC) MUS.next = AC.currentTime + .1; return; }
     MUS.gaps = MUS.gaps || 0; if (MUS.next < AC.currentTime) { MUS.gaps++; MUS.lateMax = Math.max(MUS.lateMax || 0, AC.currentTime - MUS.next); }
     if (MUS.next < AC.currentTime - .3) MUS.next = AC.currentTime + .05;
     while (MUS.next < AC.currentTime + .6) {
@@ -850,6 +868,96 @@ function shout67() {
   for (const [st, f0, f1, d] of [[0, 620, 760, .2], [.3, 700, 640, .13], [.44, 640, 520, .2]]) { const o = AC.createOscillator(), bp = AC.createBiquadFilter(), g = AC.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t + st); o.frequency.linearRampToValueAtTime(f1, t + st + d); bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 2; g.gain.setValueAtTime(0, t + st); g.gain.linearRampToValueAtTime(.14, t + st + .02); g.gain.exponentialRampToValueAtTime(.0001, t + st + d); o.connect(bp).connect(g).connect(sfxBus); o.start(t + st); o.stop(t + st + d + .05); }
 }
 document.addEventListener('visibilitychange', () => { if (!AC) return; if (document.hidden) AC.suspend().catch(() => { }); else if (STORE.set.music || STORE.set.sfx) AC.resume().catch(() => { }); });
+
+// ── baked audio ──
+// Root cause of the late-run stutter: every note of the music was synthesised live (2–9 oscillators and a filter per note,
+// plus a reverb), which kept the phone's audio thread about a quarter busy before any sound effect. After 25–30 minutes of
+// play a warm phone slows down, the audio thread misses its deadline and the music breaks up.
+// Now each theme's 16 bars are rendered once, off-line, into a buffer that simply loops (almost free to play), and the
+// common sound effects are pre-rendered too. Until a buffer is ready the old live synth fills in.
+const LOOPS = {}, SFXB = {}, BAKE_Q = []; let bakeBusy = false, bakeSR = 32000;
+function offRender(secs, wet, setup) {
+  const sr = bakeSR, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  let ctx; try { ctx = new OAC(1, Math.ceil(secs * sr), sr); } catch (e) { bakeSR = AC.sampleRate; ctx = new OAC(1, Math.ceil(secs * AC.sampleRate), AC.sampleRate); }
+  const keep = [AC, master, sfxBus, musBus, VIB, VOX, MUS.theme, MUS.step, MUS.bar];
+  AC = ctx; VIB = null; VOX = -1e9;
+  master = ctx.createGain(); master.connect(ctx.destination);
+  sfxBus = ctx.createGain(); sfxBus.connect(ctx.destination);
+  musBus = ctx.createGain(); musBus.connect(master);
+  if (wet) try { const len = ctx.sampleRate * 1.1 | 0, ir = ctx.createBuffer(1, len, ctx.sampleRate), d = ir.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); const cv = ctx.createConvolver(); cv.buffer = ir; const g = ctx.createGain(); g.gain.value = .32; musBus.connect(cv).connect(g).connect(master); } catch (e) { }
+  try { setup(); } finally { [AC, master, sfxBus, musBus, VIB, VOX, MUS.theme, MUS.step, MUS.bar] = keep; }   // the live game never sees the off-line context
+  return new Promise((res, rej) => { let p; ctx.oncomplete = e => res(e.renderedBuffer); try { p = ctx.startRendering(); } catch (e) { rej(e); } if (p && p.then) p.then(res, rej); });
+}
+function trimBuf(b) { const d = b.getChannelData(0); let n = d.length; while (n > 1 && Math.abs(d[n - 1]) < 1e-4) n--; const o = AC.createBuffer(1, n + 1, b.sampleRate); o.copyToChannel ? o.copyToChannel(d.subarray(0, n + 1), 0) : o.getChannelData(0).set(d.subarray(0, n + 1)); return o; }
+const SFX_LIVE = Object.assign({}, SFX);
+// name → [minimum gap in ms, variants]
+const SFX_BAKE = { bow: [110, 2], hit: [85, 3], kill: [80, 2], orb: [75, 3], hurt: [0, 1], shield: [0, 1], level: [0, 1], card: [0, 1], wave: [0, 1], boom: [120, 1], roar: [0, 1], horn: [0, 1], tick: [0, 1], win: [0, 1], lose: [0, 1], pop: [0, 1], page: [200, 1], soul: [150, 1], spit: [120, 2], hiss: [300, 1], magic: [140, 1], sing: [260, 1] };
+async function bakeSfx() {
+  const jobs = [];
+  for (const k in SFX_BAKE) for (let v = 0; v < SFX_BAKE[k][1]; v++) jobs.push([k, v]);
+  jobs.push(['bolt', 0], ['bolt', 1]);   // the thunder with and without its long rumble
+  for (const [k, v] of jobs) {
+    try {
+      const b = await offRender(k === 'roar' || k === 'win' || k === 'bolt' ? 1.9 : 1.3, false, () => {
+        lastS[k] = -1e12; if (k === 'bolt') lastS.rumble = v ? 1e15 : -1e12;
+        SFX_LIVE[k].call(SFX);
+        lastS[k] = 0; if (k === 'bolt') lastS.rumble = 0;
+      });
+      (SFXB[k] = SFXB[k] || [])[v] = trimBuf(b);
+    } catch (e) { }
+  }
+}
+function playBuf(b) { if (!AC || VOX > 20) return; const s = AC.createBufferSource(); s.buffer = b; VOX++; s.onended = () => { VOX = Math.max(0, VOX - 1); }; s.connect(sfxBus); s.start(); }
+for (const k of [...Object.keys(SFX_BAKE), 'bolt']) {
+  SFX[k] = function () {
+    const B = SFXB[k], n = B ? B.filter(Boolean).length : 0;
+    if (k === 'bolt') { if (!B || !B[0] || !B[1]) return SFX_LIVE.bolt(); if (!can('bolt', 120)) return; playBuf(can('rumble', 380) ? B[0] : B[1]); return; }
+    if (!n || B.length < SFX_BAKE[k][1]) return SFX_LIVE[k]();
+    if (SFX_BAKE[k][0] && !can(k, SFX_BAKE[k][0])) return;
+    playBuf(B[Math.floor(Math.random() * B.length)]);
+  };
+}
+function themeSteps(th) { return th.steps * 16; }
+function bakeTheme(name, front) { if (LOOPS[name] || !THEMES[name] || BAKE_Q.includes(name)) { if (front && BAKE_Q.includes(name)) { BAKE_Q.splice(BAKE_Q.indexOf(name), 1); BAKE_Q.unshift(name); } return; } front ? BAKE_Q.unshift(name) : BAKE_Q.push(name); bakeRun(); }
+async function bakeRun() {
+  if (bakeBusy || !AC) return; bakeBusy = true;
+  while (BAKE_Q.length) {
+    const name = BAKE_Q.shift(); if (LOOPS[name]) continue;
+    try {
+      const th = THEMES[name], L = th.steps * th.sp * 16, tail = 2.6;
+      const b = await offRender(L + tail, true, () => {
+        MUS.theme = name; MUS.step = 0; MUS.bar = 0;
+        for (let i = 0; i < themeSteps(th); i++) {
+          const t = i * th.sp; th.play(MUS.bar % 4, MUS.step, t); try { orch(th, MUS.bar % 4, MUS.step, t); } catch (e) { }
+          MUS.step++; if (MUS.step >= th.steps) { MUS.step = 0; MUS.bar = (MUS.bar + 1) % 16; }
+        }
+      });
+      // fold the tail that rings past the end back onto the start, so the loop joins without a seam
+      const d = b.getChannelData(0), N = Math.round(L * b.sampleRate);
+      for (let i = 0; i + N < d.length; i++) d[i] += d[N + i];
+      const o = AC.createBuffer(1, N, b.sampleRate); o.copyToChannel ? o.copyToChannel(d.subarray(0, N), 0) : o.getChannelData(0).set(d.subarray(0, N));
+      LOOPS[name] = o;
+      if (MUS.theme === name && !MUS.src) loopStart(name);
+    } catch (e) { console.warn('bake theme', name, e && e.message); }
+  }
+  bakeBusy = false;
+}
+async function bakeStart() {
+  if (MUS.baked) return; MUS.baked = 1;
+  bakeTheme(MUS.theme, true);
+  await bakeSfx();
+  for (const n of ['battle', 'boss', 'calm', 'battle2', 'battle3', 'menu']) bakeTheme(n);
+}
+function loopStart(name) {
+  if (!AC || !LOOPS[name]) return; loopStop();
+  const now = AC.currentTime, s = AC.createBufferSource(), g = AC.createGain();
+  s.buffer = LOOPS[name]; s.loop = true; g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(1, now + .3);
+  s.connect(g).connect(musBus); s.start(now + .02); MUS.src = { s, g, name };
+}
+function loopStop() {
+  if (!MUS.src || !AC) return; const { s, g } = MUS.src, now = AC.currentTime; MUS.src = null;
+  try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(g.gain.value, now); g.gain.linearRampToValueAtTime(0, now + .35); s.stop(now + .4); } catch (e) { }
+}
 
 // ───────────── 04 · battlefield art: drawn once into small canvases, then only copied ─────────────
 const OUT = '#2a1a12';
@@ -5505,7 +5613,7 @@ function boot() {
   addEventListener('orientationchange', () => setTimeout(layout, 250));
   app.addEventListener('pointerdown', () => { ensureAudio(); speechUnlock(); if (STORE.set.music) musicStart(); }, { once: true });
   window.__playC = (B, shots) => { stopLoop(); playCine(B, shots, null, () => { }); };
-  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST, MUS, get AC() { return AC; } };
+  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST, MUS, get AC() { return AC; }, audioBench, LOOPS, SFXB };
 }
 // test helper: run the game logic fast without drawing (used for automated play-throughs)
 function sim(seconds, bot) {
