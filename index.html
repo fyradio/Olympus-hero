@@ -434,7 +434,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3.5';
+const VER = 'v0.3.6';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -5347,7 +5347,7 @@ $('bRetry').onclick = () => { const id = G.id; hide('fail'); startBattle(id, tru
 $('bFailMap').onclick = () => { hide('fail'); openMap(); };
 
 // ── level up ──
-function poolOf(minR, exactR) { return Object.keys(SK).filter(k => { const s = SK[k]; if (s.epic || st(k) >= s.max) return false; if (k === 'souls' && G && G.B.legs && !G.hadesAlly) return false; if (s.minCh && (!G || G.B.ch < s.minCh)) return false; if (k === 'nectar' && P.hp > P.max * .8) return false; if (minR !== undefined && s.r < minR) return false; if (exactR !== undefined && s.r !== exactR) return false; return true; }); }
+function poolOf(minR, exactR) { return Object.keys(SK).filter(k => { const s = SK[k]; if (s.epic || st(k) >= s.max) return false; if (k === 'souls' && G && G.B.legs && !G.hadesAlly) return false; if (k === 'beam' && st('guide') > 0) return false;   /* once the guided arrow is in hand, the light wave is never offered (they are two answers to the same question) */ if (s.minCh && (!G || G.B.ch < s.minCh)) return false; if (k === 'nectar' && P.hp > P.max * .8) return false; if (minR !== undefined && s.r < minR) return false; if (exactR !== undefined && s.r !== exactR) return false; return true; }); }
 const DEFENSE = ['hp', 'apollo', 'shield', 'aegis'];
 const OFFENSE = ['atk', 'aspd', 'crit', 'diag', 'pierce', 'bounce', 'poison', 'fire', 'frost', 'front', 'multi', 'chain', 'bolt', 'wave', 'souls', 'giant', 'helios', 'aegis', 'guide'];
 function rollCards(n) {
@@ -5613,7 +5613,7 @@ function boot() {
   addEventListener('orientationchange', () => setTimeout(layout, 250));
   app.addEventListener('pointerdown', () => { ensureAudio(); speechUnlock(); if (STORE.set.music) musicStart(); }, { once: true });
   window.__playC = (B, shots) => { stopLoop(); playCine(B, shots, null, () => { }); };
-  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST, MUS, get AC() { return AC; }, audioBench, LOOPS, SFXB };
+  window.__SH = SH; window.__oly = { SCENES, BATTLES, get G() { return G; }, P, S, STORE, sim, PERF, IN, startBattle, openMap, SK, applySkill, WORLD, beginAdvance, get MODE() { return MODE; }, get K() { return K; }, get running() { return running; }, get CINE() { return CINE; }, REST, MUS, get AC() { return AC; }, poolOf, audioBench, LOOPS, SFXB };
 }
 // test helper: run the game logic fast without drawing (used for automated play-throughs)
 function sim(seconds, bot) {
