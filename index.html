@@ -434,7 +434,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3.4';
+const VER = 'v0.3.5';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -5635,7 +5635,7 @@ function bossLeft() { const e = G.boss; if (!e) return 0; if (!e.segs) return e.
 // ───────────── 10b · high-tier blessings: the giant arrow and the light-wave bow ─────────────
 Object.assign(SK, {
   giantA: { n: '泰坦巨箭', god: '泰坦 阿特拉斯', r: 2, max: 1, d: '射出去的箭變得超大，比較容易打中，威力變成 1.5 倍。' },
-  beam: { n: '光波箭', god: '光明之神 赫利俄斯', r: 3, max: 1, d: '不再射箭，改成直接發射一道貫穿全場的光波！擁有火焰、中毒、冰凍祝福時，光波會變色，效果也一起打出去。' },
+  beam: { n: '光波箭', god: '光明之神 赫利俄斯', r: 3, max: 1, d: '不再射箭，改成直接發射一道貫穿全場的強力光波，單發威力約是普通箭的兩倍！擁有火焰、中毒、冰凍祝福時，光波會變色，效果也一起打出去。' },
 });
 OFFENSE.push('giantA', 'beam');
 Object.assign(ICONS, {
@@ -5661,7 +5661,8 @@ function beamCols() {
 function fireBeams(a) {
   if (!G.pbeams) G.pbeams = [];
   const fr = st('front'), big = st('giantA') ? 1.5 : 1;
-  const dmg = baseDmg() * (1 + .75 * fr) * Math.pow(.9, st('multi')) * big * .7;
+  // one wave replaces the whole volley, so it carries the weight of the arrows it replaces (it used to be x0.7 and fell far behind plain arrows)
+  const dmg = baseDmg() * (1 + .75 * fr) * Math.pow(.9, st('multi')) * big * (1.9 + .2 * st('pierce'));
   const w = (16 + 7 * fr) * (big > 1 ? 1.5 : 1);
   beamAt(a, dmg, w);
   if (st('diag') >= 1) { beamAt(a - .5, dmg * .7, w * .6); beamAt(a + .5, dmg * .7, w * .6); }
