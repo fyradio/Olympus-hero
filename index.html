@@ -52,6 +52,8 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .waves i.done{background:var(--gold);border-color:var(--gold)}
 .waves i.now{background:#fff3c9;border-color:#fff;box-shadow:0 0 0 2px rgba(255,243,201,.35)}
 .waves.w20{gap:2px}.waves.w20 i{width:7px;height:7px;border-width:1.2px}.waves.w20 b{width:13px;height:13px;margin:0 1px;font-size:8px}.waves b.done{opacity:.45}.waves b.now{box-shadow:0 0 0 2px #fff3c9}
+.rank{grid-column:1/-1;margin:10px 0 0;text-align:left;font-size:14px}.rank h4{margin:0 0 4px;font-size:13px;color:var(--gold)}.rk{display:flex;gap:8px;align-items:baseline;padding:2px 0}.rk b{width:18px;color:var(--gold)}.rk span{font-weight:900}.rk em{margin-left:auto;font-style:normal;opacity:.7;font-size:12px}.rk.me{color:#fff3c9;text-shadow:0 0 6px var(--gold)}
+.waves u{text-decoration:none;margin-left:6px;font:900 11px var(--f-latin);color:#ffe9a8;white-space:nowrap;text-shadow:0 1px 2px #000}
 .waves i.elite{border-radius:2px;transform:rotate(45deg) scale(.9)}
 .waves b{width:16px;height:16px;margin-left:2px;display:grid;place-items:center;font:900 10px var(--f-latin);color:#2a0b06;background:var(--blood);border-radius:50% 50% 45% 45%;box-shadow:0 0 0 1.5px #ffb3a6}
 .bosshp{flex:1.4;display:flex;align-items:center;gap:6px;margin-top:6px;min-width:0}
@@ -434,7 +436,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.3.6';
+const VER = 'v0.4.0';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -2104,11 +2106,11 @@ const P = {};
 const REST = { t: 0 };          // seconds of active fighting since the last rest
 const BASE_DMG = 14;
 let EID = 1;
-const xpNeed = L => 5 + 8 * (L - 1);   // about half as many blessings per battle: early levels stay quick, later ones slow down
+const xpNeed = L => (5 + 8 * (L - 1)) * (G && G.inf ? 1 + Math.max(0, L - 8) / 12 : 1);   // about half as many blessings per battle: early levels stay quick, later ones slow down
 const st = k => (G && G.skills[k]) || 0;
 const atkMult = () => (1 + .22 * st('atk')) * (1 + .15 * st('mighty')) * (G.bonusAtk || 1);
 const baseDmg = () => BASE_DMG * atkMult();
-const fireInterval = () => .6 / (1 + .18 * st('aspd'));
+const fireInterval = () => Math.max(.12, .6 / (1 + .18 * st('aspd')));
 const moveSpeed = () => 122 * (1 + .14 * st('boots'));
 const magnetR = () => 54 * (1 + .55 * st('boots'));
 function curBattleId() { return G ? G.id : 'beach'; }
@@ -2120,16 +2122,16 @@ const CH_TUNE = { 3: { hp: .67, dmg: .8 }, 4: { hp: .62, dmg: .82 }, 5: { hp: .6
 // chapter 10 keeps 20 stages of blessings, so later stages grow much tougher than the usual curve
 // later waves bring a bigger, slightly frailer horde: more to mow down
 const hordeK = () => 1 + .45 * Math.min(1, waveK() / 9);
-const runK = () => G.B.legs ? Math.max(0, G.wave) / (G.B.waves.length - 1) : 0;
-function chTune() { const t = CH_TUNE[G.B.ch] || { hp: 1, dmg: 1 }; if (!G.B.legs) return t; const s = runK(); return { hp: t.hp * (1 + 1.7 * s * s), dmg: t.dmg * (1 + .55 * s) }; }
-const waveK = () => Math.max(0, G.wave) * 9 / Math.max(1, G.B.waves.length - 1);   // progress through the battle on a 0–9 scale (chapter 10 has twenty stages)
+const runK = () => G.inf ? Math.min(1, Math.max(0, G.wave) / 30) : G.B.legs ? Math.max(0, G.wave) / (G.B.waves.length - 1) : 0;
+function chTune() { const t = CH_TUNE[G.B.ch] || { hp: 1, dmg: 1 }; if (!G.B.legs) return t; if (G.inf) { const f = infF(); return { hp: t.hp * f * .55, dmg: t.dmg * f * .6 }; } const s = runK(); return { hp: t.hp * (1 + 1.7 * s * s), dmg: t.dmg * (1 + .55 * s) }; }
+const waveK = () => G.inf ? 1 : Math.max(0, G.wave) * 9 / Math.max(1, G.B.waves.length - 1);   // progress through the battle on a 0–9 scale (chapter 10 has twenty stages)
 function rampHP() { const w = waveK(), cm = chapterMul(G.B.ch).hp; return (G.D.ramp ? 1 + w / 9 : 1 + .08 * w) * (1 + (cm - 1) * (.5 + .5 * w / 9)); }   // the chapter bonus grows in over the battle
 function rampSpd() { const w = waveK(), cs = chapterMul(G.B.ch).spd; return (G.D.ramp ? .84 * (1 + w / 9) : .84 + .03 * w) * (1 + (cs - 1) * w / 9); }
 
 function newBattle(id) {
-  const B = BATTLES[id], D = DIFF[STORE.set.diff] || DIFF.demi;
+  const B = BATTLES[id].inf ? Object.assign({}, BATTLES[id], { waves: [], bossAt: {} }) : BATTLES[id], D = DIFF[STORE.set.diff] || DIFF.demi;
   G = {
-    id, B, D, t: 0, phase: 'waves', wave: -1, waveT: 0, queue: [], spawnQ: [], enemies: [], bigs: [], arrows: [], eb: [], lobs: [], orbs: [], items: [],
+    id, B, D, inf: !!B.inf, t: 0, phase: 'waves', wave: -1, waveT: 0, queue: [], spawnQ: [], enemies: [], bigs: [], arrows: [], eb: [], lobs: [], orbs: [], items: [],
     fx: [], parts: [], zones: [], fires: [], floats: [], allies: [], puddles: [], sflames: [], kills: 0, dmgTaken: 0, combo: 0, comboT: 0, bestCombo: 0,
     level: 1, xp: 0, need: xpNeed(1), pendingLv: 0, skills: {}, order: [], revived: false, boss: null, bossParts: [], shake: 0, darken: 0, slow: 1, slowT: 0,
     breakT: 0, magnetAll: false, tm: { bolt: 1.5, wave: 2, giant: 2.5, helios: 3, aegis: 4, gold: 3, soulF: 1.2 }, souls: 0, soulA: 0, bonusAtk: 1,
@@ -2137,8 +2139,8 @@ function newBattle(id) {
     epic: '', epics: [], epicOffered: false, epicT: 0, epicReady: false, storm: null, sunE: null, whirls: [], decals: [], emblem: null, cutin: null, tint: null, scroll: 0, adv: null,
   };
   Object.assign(P, { x: LW / 2, y: G.yMax - 40, r: 10, hp: D.php, max: D.php, moving: false, fireT: .6, aim: -Math.PI / 2, inv: 0, flash: 0, pend: [], gold: 0, walkT: 0, frame: 0, bowT: 0, regenT: 4, pig: 0, stone: 0, daze: 0, charm: null, kbx: 0, kby: 0, autoWalk: false, dir: 4, wt: 0, slowMul: 1 });
-  if (B.legs) ch10Init();
-  worldReset(B.legs ? B.legs[0] : id);
+  if (B.inf) infInit(); else if (B.legs) ch10Init();
+  worldReset(B.inf ? G.infWorld : B.legs ? B.legs[0] : id);
 }
 
 // ── spatial grid for cheap collision checks ──
@@ -2161,6 +2163,7 @@ function forRadius(x, y, r, fn) { // everything within r (slower, used for area 
 
 // ── spawning ──
 function startWave(i) {
+  if (G.inf) infEnsure(i + 7);
   G.wave = i; G.waveT = 0; G.queue = [];
   for (const [at, kind, n, pat] of G.B.waves[i]) G.queue.push({ at, kind, n: EN[kind].elite ? 1 : Math.max(1, Math.round(n * G.D.cnt * hordeK() * (1 + .45 * runK()))), pat, done: false });
   G.phase = 'waves'; G.magnetAll = false; G.hudDirty = true;
@@ -3338,7 +3341,7 @@ function startBoss() {
   const CB = curB(), k = CB.boss; const e = spawnEnemy(k, LW / 2, -100); G.boss = e;
   if (CB.hpT) e.hp = e.mhp = CB.hpT * G.D.boss;
   if (CB.myth) { e.myth = CB.myth; e.mT = {}; CB.myth.forEach((m, i) => { e.mT[m] = 3 + i * 2.5; }); }
-  if (k === 'kronos' && G.B.legs) kronosSetup(e);
+  if (k === 'kronos' && G.B.legs && !G.inf) kronosSetup(e);
   if (CB.twin) { const t = spawnEnemy(CB.twin, LW / 2 + 70, -120); t.link = e; e.twin = t; t.twin = e; e.x = LW / 2 - 70; G.bossParts.push(t); }
   if (CB.third) { const t = spawnEnemy(CB.third, LW / 2, -150); t.link = e; G.bossParts.push(t); e.x = LW / 2 - 100; if (e.twin) e.twin.x = LW / 2 + 100; }
   if (k === 'cetus' || k === 'scylla' || k === 'charybdis' || k === 'charon') { G.yMin = 196; P.y = Math.max(P.y, 320); }
@@ -3612,9 +3615,10 @@ function ch10Init() {
   const ms = Object.keys(MYTHS); G.m5 = [pick(ms)]; const a = pick(ms); G.m15 = [a, pick(ms.filter(x => x !== a))];
   G.leg = 0; G.BB = null;
 }
-function ch10Bake() { return G && G.B.legs ? [...(BAKE_SETS[G.r5] || []), ...(BAKE_SETS[G.r15] || [])] : []; }
+function ch10Bake() { return G && G.B.legs ? (G.inf ? G.infBake : [...(BAKE_SETS[G.r5] || []), ...(BAKE_SETS[G.r15] || [])]) : []; }
 function legPos(i) { return (i % 5) * 2.4; }
 function bossInfo(idx) {
+  if (G.inf) return infBossInfo(idx);
   const kind = G.B.bossAt[idx];
   if (kind === 'r1' || kind === 'r2') {
     const B = BATTLES[kind === 'r1' ? G.r5 : G.r15], my = kind === 'r1' ? G.m5 : G.m15;
@@ -3652,6 +3656,7 @@ function midBossDown(e) {
   G.boss = null; G.bossParts = [];
 }
 function ch10AfterBoss() {
+  if (G.inf) { infAfterBoss(); return; }
   const idx = G.wave, kind = G.B.bossAt[idx];
   heal(P.max * .3);
   if (kind === 'hades') {
@@ -3669,8 +3674,8 @@ function legReset(L) {
   G.leg = L; G.scroll = 0; G.BB = null; G.boss = null; G.yMin = 70; G.epicOffered = false;
   G.items = G.items.filter(it => it.k !== 'goldS'); G.decals.length = 0; G.puddles.length = 0; G.fires.length = 0; G.parts.length = 0; G.fx.length = 0; G.orbs.length = 0;
   P.x = LW / 2; P.y = G.yMax - 40;
-  worldReset(G.B.legs[L]);
-  musicTheme(L >= 2 ? 'battle3' : 'battle2');
+  worldReset(G.inf ? infWorld(L) : G.B.legs[L]);
+  musicTheme(G.inf ? ['battle', 'battle2', 'battle3'][(L >> 1) % 3] : L >= 2 ? 'battle3' : 'battle2');
 }
 // stepping through the run's own phases (called from step)
 function ch10Step(dt) {
@@ -3893,6 +3898,129 @@ function segPower(e) {
   e.look = SH[LOOKS[e.si]] ? LOOKS[e.si] : 'kronos';
   // armour pieces fly off when a bar breaks
   if (e.si > 0) for (let k = 0; k < 10 && G.parts.length < Q().parts + 10; k++) { const a = rnd() * TAU, v = rr(120, 260); G.parts.push({ x: e.x + rr(-20, 20), y: e.y - rr(20, 70), vx: Math.cos(a) * v, vy: -rr(120, 260), t: 0, T: .9, s: e.si === 3 ? 'sparkB' : 'spark', sc: 1.6, a: 1 }); }
+}
+
+// ───────────── 07e · the endless war: an easter-egg run after the whole story is cleared ─────────────
+// No story. A new scene every ten stages, a random boss every five, and everything (monsters' health and damage) doubles every ten stages.
+// Blessings stack without end. Kronos can show up as a boss, but with a single health bar and without swallowing any gods.
+BATTLES.infinite = {
+  ch: 10, inf: 1, n: '無限之戰', en: 'ENDLESS WAR', boss: 'kronos', elite: 'bigHound', grunt: 'spartoi', swarm: 'shade', thumb: 'othrys', dim: 1,
+  bossN: '', bossLine: '', bossShort: '', legs: ['inf'], bossAt: {}, waves: [], intro: [], outro: [], fact: '',
+};
+CHAPTERS.push({ no: '∞', n: '無限之戰', en: 'ENDLESS WAR', battles: ['infinite'], long: 1, endless: 1 });
+
+const INF_STACK = ['atk', 'aspd', 'hp'];   // these blessings never run out in the endless war
+const INF_TIERS = [
+  ['spartoi', 'shade', 'shadeW', 'wisp', 'bigHound'],
+  ['shadeW', 'hound', 'spartoi', 'wisp', 'bigHound'],
+  ['gigas', 'hound', 'gigasS', 'gigasR', 'bigGigas'],
+  ['bronzeW', 'bronzeDog', 'gigasS', 'gigasR', 'bronzeGiant'],
+];
+const INF_BOSS_W = { hades: 2, kronos: 2 };
+// monsters get tougher by x2 every ten stages (health and damage alike)
+const infF = () => Math.pow(2, Math.max(0, G.wave) / 10);
+const infBest = () => (STORE.best && +STORE.best.infinite) || 0;
+function infRecord(n) { if (n > infBest()) { STORE.best.infinite = n; } STORE.seen.infinite = true; save(); }
+// top five runs (only the endless war keeps a ranking); one entry per run, written when the run ends
+const infReached = () => Math.max(1, G.phase === 'boss' || G.phase === 'talk' || G.phase === 'bossIntro' ? G.wave : G.wave + 1);
+function infRank() {
+  if (!G || !G.inf || G.infRanked) return; G.infRanked = true;
+  const n = infReached(), d = new Date(), list = (STORE.inf5 || []).slice();
+  const ent = { n, lv: G.level, d: (d.getMonth() + 1) + '/' + d.getDate() }; list.push(ent);
+  list.sort((a, b) => b.n - a.n); STORE.inf5 = list.slice(0, 5); infRecord(n); G.infRankNo = STORE.inf5.indexOf(ent) + 1;
+}
+function infRankHTML(hi) { return (STORE.inf5 || []).map((r, i) => `<div class="rk${hi === i + 1 ? ' me' : ''}"><b>${i + 1}</b><span>第 ${r.n} 關</span><em>Lv ${r.lv}・${r.d}</em></div>`).join('') || '<div class="rk"><em>還沒有紀錄</em></div>'; }
+const infAllBattles = () => { const a = []; for (let i = 0; i < 9; i++) a.push(...CHAPTERS[i].battles); return a; };
+
+function infInit() {
+  G.infScenes = []; G.infBoss = []; G.infBake = []; G.hadesAlly = true;
+  G.leg = 0; G.BB = null; G.infLegW = null;
+  infPlanLeg(0);
+  G.infWorld = infWorld(0);
+}
+function infScene(s) {
+  while (G.infScenes.length <= s) {
+    const pool = [...infAllBattles(), 'tartarus'], recent = G.infScenes.slice(-6).map(x => x.id);
+    let id = pick(pool.filter(x => !recent.includes(x)));
+    const sc = { id };
+    if (id === 'tartarus') { sc.world = pick(['tt1', 'tt2', 'tt3', 'tt4']); sc.tier = pick(INF_TIERS); sc.bake = sc.tier.filter(k => MD[k]); sc.swarm = 'shade'; sc.grunt = sc.tier[0]; }
+    else { const B = BATTLES[id]; sc.world = id; sc.bake = BAKE_SETS[id] || []; sc.swarm = B.swarm; sc.grunt = B.grunt; }
+    G.infScenes.push(sc);
+  }
+  return G.infScenes[s];
+}
+const infSceneOf = L => infScene(L >> 1);
+function infWorld(L) { return infSceneOf(L).world; }
+// the five stages of one leg: four fights taken from the scene's own monsters, then a boss
+function infLegWaves(L) {
+  const sc = infSceneOf(L), second = L % 2 === 1;
+  if (sc.id === 'tartarus') { const t = T10(...sc.tier); return t.slice(0, 4); }
+  const src = BATTLES[sc.id].waves, idx = second ? [2, 5, 7, 9] : [1, 3, 4, 6];
+  return idx.map(i => src[Math.min(i, src.length - 1)]);
+}
+function infEnsure(n) {
+  const B = G.B;
+  while (B.waves.length < n) {
+    const i = B.waves.length, L = Math.floor(i / 5), k = i % 5;
+    if (k === 0) G.infLegW = infLegWaves(L);
+    B.waves.push(k < 4 ? G.infLegW[k] : []);
+    if (k === 4) B.bossAt[i] = 'inf';
+  }
+}
+// decide the scene and the boss of leg L (done before the leg starts so that everything can be baked first)
+function infPlanLeg(L) {
+  const sc = infSceneOf(L);
+  let kind;
+  const pool = [...infAllBattles().map(b => ({ k: 'past', b, w: 1 })), { k: 'hades', w: INF_BOSS_W.hades }, { k: 'kronos', w: INF_BOSS_W.kronos }];
+  const last = G.infBoss[L - 1], cand = pool.filter(p => !last || (p.k === 'past' ? last.b !== p.b : last.k !== p.k));
+  let tot = 0; for (const p of cand) tot += p.w; let r = rnd() * tot; kind = cand[0];
+  for (const p of cand) { r -= p.w; if (r <= 0) { kind = p; break; } }
+  const plan = { k: kind.k, b: kind.b };
+  if (kind.k === 'past') {
+    const ms = Object.keys(MYTHS), n = Math.min(3, 1 + Math.floor(L / 3)), my = [];
+    while (my.length < n) { const m = pick(ms); if (!my.includes(m)) my.push(m); }
+    plan.myth = my;
+  }
+  G.infBoss[L] = plan;
+  const bb = plan.k === 'past' ? (BAKE_SETS[plan.b] || []) : BAKE_SETS.tartarus.filter(x => !MD[x] || ['hades', 'kronos', 'gigasS', 'shade'].includes(x));
+  const props = (PROP_SETS[sc.world] || []).map(t => 'p_' + t);
+  G.infBake = [...new Set([...sc.bake, ...bb, ...props])];
+}
+function infBossInfo(idx) {
+  const L = Math.floor(idx / 5), p = G.infBoss[L], F = Math.pow(2, idx / 10) * .6;   // the same gentle start as the monsters
+  if (p.k === 'hades') return { boss: 'hades', bossN: '冥王 黑帝斯', bossShort: '黑帝斯', bossLine: '想在無盡的戰場上走得更遠？先過了我這一關再說！', hpT: 3600 * F };
+  if (p.k === 'kronos') return { boss: 'kronos', bossN: '泰坦之王 克羅諾斯', bossShort: '克羅諾斯', bossLine: '時間在這裡沒有盡頭……小英雄，你還能撐多久？', hpT: 6500 * F };
+  const B = BATTLES[p.b];
+  return { boss: B.boss, twin: B.twin, third: B.third, bossShort: B.bossShort, bossN: '神話・' + B.bossN, bossLine: `${B.bossLine}（得到了${p.myth.map(m => MYTHS[m].god + '的' + MYTHS[m].n).join('和')}！）`, myth: p.myth, hpT: 2100 * F };
+}
+// get the next leg ready (plan it, bake its models behind a loading screen), then carry on
+async function infPrep(L, cb) {
+  infPlanLeg(L);
+  const g0 = G, sc = infSceneOf(L);
+  g0.B.swarm = sc.swarm || 'dog'; g0.B.grunt = sc.grunt || 'spear';
+  stopLoop(); battleDraw();
+  if (fgInit()) {
+    const need = [...BAKE_SETS.common, ...g0.infBake].filter(k => !SH[k]);
+    if (need.length) { $('loadI').style.width = '0%'; show('loading'); await new Promise(r => setTimeout(r, 30)); }
+    await ensureModels('infinite', f => { $('loadI').style.width = Math.round(f * 100) + '%'; });
+    hide('loading');
+  }
+  if (G !== g0 || MODE !== 'battle') return;
+  cb();
+}
+// after a boss falls: a god arrives (while gods are left), later every boss gives more of the endless stacking blessings
+function infReward(cb) {
+  if (EPICS.some(k => !G.epics.includes(k))) { godReward(cb); return; }
+  stopLoop(); battleDraw(); IN.active = false;
+  revealOne('atk', 'ENDLESS BOON', '魔王倒下，戰神賜你更強的戰意！', () => revealOne('hp', 'ENDLESS BOON', '大力士賜你更多的生命！', cb, true), true);
+}
+function infAfterBoss() {
+  const idx = G.wave, L = G.leg + 1;
+  heal(P.max * .3); infRecord(idx + 1);
+  infPrep(L, () => {
+    startLoop();
+    G.fade = { t: 0, L, cb: () => infReward(() => { G.pendingLv++; startWave(idx + 1); startLoop(); }) }; G.phase = 'fade';
+  });
 }
 
 // ───────────── 08 · drawing the battle (painted ground chunks + baked sprites, no blur/shadow filters) ─────────────
@@ -5221,12 +5349,12 @@ function openMap() {
     const d = document.createElement('div');
     if (ch.battles && chapterOpen(ci)) {
       d.className = 'chap open';
-      d.innerHTML = `<div class="no">${ch.no}</div><h3>${ch.n}</h3><p>${ch.en} · ${ch.long ? '20 關大遠征，輸了從第 1 關重來' : '三選一'}</p><div class="battles"></div><button class="btn march" type="button" style="grid-column:1/-1;margin-top:10px">${ch.long ? '出征！' : '出征！（隨機抽一場戰役）'}</button>`;
+      d.innerHTML = `<div class="no">${ch.no}</div><h3>${ch.n}</h3><p>${ch.en} · ${ch.endless ? '全破彩蛋・沒有終點，看你能撐到第幾關' : ch.long ? '20 關大遠征，輸了從第 1 關重來' : '三選一'}</p><div class="battles"></div>${ch.endless ? '<div class="rank"><h4>排行榜 TOP 5</h4>' + infRankHTML(0) + '</div>' : ''}<button class="btn march" type="button" style="grid-column:1/-1;margin-top:10px">${ch.long ? '出征！' : '出征！（隨機抽一場戰役）'}</button>`;
       const bx = d.querySelector('.battles');
       for (const id of ch.battles) {
-        const B = BATTLES[id], seen = !!STORE.seen[id], ph = seen ? loadPhoto(id) : null, can = seen || TEST;
+        const B = BATTLES[id], seen = ch.endless || !!STORE.seen[id], ph = seen ? loadPhoto(id) : null, can = seen || TEST;
         const b = document.createElement('button'); b.type = 'button'; b.className = 'bt' + (seen ? '' : ' unseen'); if (!can) b.disabled = true;
-        b.innerHTML = (ph ? `<img alt="" src="${ph}">` : '') + `<span>${seen ? B.n : '？？？'}</span><em>${seen ? (STORE.best[id] ? '最佳 ' + STORE.best[id] : '打過了') : '還沒遇到'}</em>`;
+        b.innerHTML = (ph ? `<img alt="" src="${ph}">` : '') + `<span>${seen ? B.n : '？？？'}</span><em>${ch.endless ? (infBest() ? '最佳 第 ' + infBest() + ' 關' : '尚未挑戰') : seen ? (STORE.best[id] ? '最佳 ' + STORE.best[id] : '打過了') : '還沒遇到'}</em>`;
         if (!ph) { const c = mkCanvas(150, 200); paintBattleThumb(c, id, seen); b.prepend(c); }
         if (can) b.onclick = () => { ensureAudio(); startBattle(id); };
         bx.appendChild(b);
@@ -5237,6 +5365,9 @@ function openMap() {
         const fresh = ch.battles.filter(i => !STORE.seen[i]);
         startBattle(pick(fresh.length ? fresh : ch.battles));
       };
+    } else if (ch.endless) {
+      d.className = 'chap lock';
+      d.innerHTML = `<div class="no">${ch.no}</div><h3>？？？</h3><p>打贏第 10 章的克羅諾斯，就會出現</p>`;
     } else if (ch.battles) {
       d.className = 'chap lock';
       d.innerHTML = `<div class="no">${ch.no}</div><h3>${ch.n}</h3><p>${ch.battles.map(id => BATTLES[id].n).join('・')} · 打贏第 ${ch.no - 1} 章任一場戰役就能出發</p>`;
@@ -5265,7 +5396,7 @@ function startBattle(id, skipIntro) {
     lastBattle = id; hide('map'); hide('fail'); hide('report');
     newBattle(id); REST.started = true;
     await Promise.all([fontsReady(), forgeCast(id)]);
-    if (skipIntro) beginFight(); else playCine(G.B, G.B.intro, null, beginFight);
+    if (skipIntro || G.inf) beginFight(); else playCine(G.B, G.B.intro, null, beginFight);
   });
 }
 // bake the 2.5D models this battle needs (only the first time; later battles reuse what is already made)
@@ -5293,6 +5424,7 @@ function beginFight() {
 }
 function buildWaveDots() {
   const w = $('waves'), BA = G.B.bossAt; w.innerHTML = ''; w.classList.toggle('w20', !!BA);
+  if (G.inf) { for (let i = 0; i < 4; i++) w.appendChild(document.createElement('i')); const b = document.createElement('b'); b.textContent = '魔'; w.appendChild(b); const u = document.createElement('u'); w.appendChild(u); return; }
   for (let i = 0; i < G.B.waves.length; i++) { if (BA && BA[i]) { const b = document.createElement('b'); b.textContent = BA[i] === 'hades' ? '冥' : BA[i] === 'kronos' ? '王' : '魔'; w.appendChild(b); continue; } const d = document.createElement('i'); if (G.B.waves[i].some(q => EN[q[1]].elite)) d.className = 'elite'; w.appendChild(d); }
   if (!BA) { const b = document.createElement('b'); b.textContent = '王'; w.appendChild(b); }
 }
@@ -5308,7 +5440,8 @@ function hudTick() {
   if (G.wave !== HC.wave || G.phase !== HC.ph) {
     HC.wave = G.wave; HC.ph = G.phase;
     const dots = $('waves').children;
-    const nw = G.B.waves.length, fight = G.phase === 'waves' || G.phase === 'boss' || G.phase === 'bossIntro' || G.phase === 'talk'; for (let i = 0; i < nw && i < dots.length; i++) { dots[i].classList.toggle('done', i < G.wave || (i === G.wave && !fight && G.phase !== 'advance')); dots[i].classList.toggle('now', i === G.wave && fight); }
+    const nw = G.inf ? 5 : G.B.waves.length, base = G.inf ? Math.max(0, G.wave) - Math.max(0, G.wave) % 5 : 0, fight = G.phase === 'waves' || G.phase === 'boss' || G.phase === 'bossIntro' || G.phase === 'talk'; for (let i = 0; i < nw && i < dots.length; i++) { const w = base + i; dots[i].classList.toggle('done', w < G.wave || (w === G.wave && !fight && G.phase !== 'advance')); dots[i].classList.toggle('now', w === G.wave && fight); }
+    if (G.inf && dots[5]) dots[5].textContent = '第 ' + Math.max(1, G.wave + 1) + ' 關';
   }
   if (G.boss) { const b = Math.max(0, Math.round(G.boss.hp / G.boss.mhp * 200)); if (b !== HC.boss) { HC.boss = b; $('bossI').style.width = (b / 2) + '%'; } }
   if (G.epic) { const cd = EPIC_CD[G.epic][st(G.epic) - 1] || 7, p = Math.round((1 - clamp(G.tm.epic / cd, 0, 1)) * 20) * 5; if (p !== HC.ep) { HC.ep = p; const el = $('epicI'); el.style.setProperty('--p', p); el.classList.toggle('ready', p >= 100); } }
@@ -5338,6 +5471,12 @@ $('bRevive').onclick = () => {
 $('bGiveUp').onclick = () => { hide('revive'); showFail(); };
 function showFail() {
   stopLoop(); setMode('menu'); musicTheme('calm'); SFX.lose();
+  if (G.inf) {
+    infRank(); const n = infReached();
+    $('failP').innerHTML = `你在無限之戰撐到了第 ${n} 關！${G.infRankNo ? '登上排行榜第 ' + G.infRankNo + ' 名！' : ''}敵人每 10 關強兩倍。<div class="rank">${infRankHTML(G.infRankNo)}</div>`;
+    $('failS').innerHTML = stat(Math.max(1, n), '抵達關卡') + stat(G.kills, '擊敗敵人') + stat('Lv ' + G.level, '英雄等級');
+    show('fail'); return;
+  }
   $('failP').textContent = G.phase === 'boss' || G.phase === 'talk' ? `只差一點點！${curB().bossShort}還剩 ${Math.ceil(bossLeft() * 100)}% 的生命。換一組祝福再試試看！` : G.B.legs ? `你打到了第 ${G.wave + 1} 關（共 ${G.B.waves.length} 關）。輸了要從第 1 關重新出發，加油！` : `你撐到了第 ${G.wave + 1} 波。多移動閃躲，站穩了再射箭！`;
   $('failS').innerHTML = stat(G.kills, '擊敗敵人') + stat(fmtTime(G.t), '戰鬥時間') + stat(G.level, '英雄等級');
   show('fail');
@@ -5347,7 +5486,7 @@ $('bRetry').onclick = () => { const id = G.id; hide('fail'); startBattle(id, tru
 $('bFailMap').onclick = () => { hide('fail'); openMap(); };
 
 // ── level up ──
-function poolOf(minR, exactR) { return Object.keys(SK).filter(k => { const s = SK[k]; if (s.epic || st(k) >= s.max) return false; if (k === 'souls' && G && G.B.legs && !G.hadesAlly) return false; if (k === 'beam' && st('guide') > 0) return false;   /* once the guided arrow is in hand, the light wave is never offered (they are two answers to the same question) */ if (s.minCh && (!G || G.B.ch < s.minCh)) return false; if (k === 'nectar' && P.hp > P.max * .8) return false; if (minR !== undefined && s.r < minR) return false; if (exactR !== undefined && s.r !== exactR) return false; return true; }); }
+function poolOf(minR, exactR) { return Object.keys(SK).filter(k => { const s = SK[k]; if (s.epic || (st(k) >= s.max && !(G && G.inf && INF_STACK.includes(k)))) return false; if (k === 'souls' && G && G.B.legs && !G.hadesAlly) return false; if (k === 'beam' && st('guide') > 0) return false;   /* once the guided arrow is in hand, the light wave is never offered (they are two answers to the same question) */ if (s.minCh && (!G || G.B.ch < s.minCh)) return false; if (k === 'nectar' && P.hp > P.max * .8) return false; if (minR !== undefined && s.r < minR) return false; if (exactR !== undefined && s.r !== exactR) return false; return true; }); }
 const DEFENSE = ['hp', 'apollo', 'shield', 'aegis'];
 const OFFENSE = ['atk', 'aspd', 'crit', 'diag', 'pierce', 'bounce', 'poison', 'fire', 'frost', 'front', 'multi', 'chain', 'bolt', 'wave', 'souls', 'giant', 'helios', 'aegis', 'guide'];
 function rollCards(n) {
@@ -5505,7 +5644,7 @@ function perfLine() { $('perfT').textContent = `${VER}・${STORE.set.fps} 格/�
 let quitArm = false;
 $('bPause').onclick = () => { ensureAudio(); openPause(); };
 $('bResume').onclick = () => { hide('pauseM'); if (G && G.phase !== 'talk' && !anySheetOpen()) startLoop(); };
-$('oQuit').onclick = () => { if (!quitArm) { quitArm = true; $('oQuit').textContent = '再按一次離開'; return; } hide('pauseM'); openMap(); };
+$('oQuit').onclick = () => { if (!quitArm) { quitArm = true; $('oQuit').textContent = '再按一次離開'; return; } hide('pauseM'); if (G && G.inf) infRank(); openMap(); };
 onEscape = () => { if (MODE !== 'battle') return; if (!$('pauseM').hidden) $('bResume').click(); else openPause(); };
 let hiddenWhile = '';
 document.addEventListener('visibilitychange', () => {
@@ -5545,7 +5684,7 @@ function showReport() {
   $('repS').innerHTML = repStats().map(([v, l]) => stat(v, l)).join('');
   $('repName').value = STORE.name || '';
   renderCard(); $('repHint').textContent = '長按紀念卡圖片，就能存到相簿。';
-  const nx = CHAPTERS[G.B.ch]; $('bRepNext').textContent = nx && nx.battles ? '下一關 ›' : '再玩一次 ›';
+  const nx = CHAPTERS[G.B.ch]; $('bRepNext').textContent = nx && nx.battles && !nx.endless ? '下一關 ›' : '再玩一次 ›';
   show('report'); SFX.win();
 }
 function repStats() { return [[G.kills, '擊敗敵人'], [fmtTime(G.t), '戰鬥時間'], ['Lv ' + G.level, '英雄等級'], [Object.values(G.skills).reduce((a, b) => a + b, 0), '眾神祝福'], [Math.round(G.dmgTaken), '受到傷害'], [G.bestCombo, '最高連殺']]; }
@@ -5587,7 +5726,7 @@ $('bRepMap').onclick = () => { hide('report'); openMap(); };
 // next: march into the next chapter (a battle not yet cleared comes first); after the last chapter, play it again
 $('bRepNext').onclick = () => {
   const nx = CHAPTERS[G.B.ch]; hide('report'); ensureAudio();
-  if (!nx || !nx.battles) { startBattle(G.id); return; }
+  if (!nx || !nx.battles || nx.endless) { startBattle(G.id); return; }
   const fresh = nx.battles.filter(i => !STORE.seen[i]); startBattle(pick(fresh.length ? fresh : nx.battles));
 };
 
