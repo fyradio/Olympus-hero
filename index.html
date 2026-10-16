@@ -436,7 +436,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.4.0';
+const VER = 'v0.4.1';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -2310,9 +2310,9 @@ function shootArrow(x, y, a, dmg) {
   if (st('giantA')) { A.dmg *= 1.5; A.sc = 1.75; A.big = 6; }
   if (gd) {
     A.guide = 1; A.left = 1 + gd + st('pierce'); A.hitT = {}; A.life = 2.7; A.bounce = 0;
-    // keep the swarm of guided arrows in check on a phone: past 32 in the air, the oldest one bows out
-    let n = 0, old = -1; for (let i = 0; i < G.arrows.length; i++) if (G.arrows[i].guide) { n++; if (old < 0) old = i; }
-    if (n >= 32 && old >= 0) G.arrows.splice(old, 1);
+    // keep the swarm of guided arrows in check on a phone: with 32 already in the air the bow simply holds fire (no arrow is cut short)
+    let n = 0; for (let i = 0; i < G.arrows.length; i++) if (G.arrows[i].guide) n++;
+    if (n >= 32) return;
   }
   G.arrows.push(A);
 }
@@ -2508,7 +2508,6 @@ function updateArrows(dt) {
     if (a.guide) {
       // Eros' guided arrow: it turns toward the nearest foe, passes through, and swings back for another pass
       if (!a.tg || a.tg.dead || (a.hitT[a.tg.id] !== undefined && G.t - a.hitT[a.tg.id] < .32)) a.tg = guideTarget(a);
-      if (!a.tg) a.life = Math.min(a.life, .45);   // nothing left to chase: fade out instead of wandering the field
       if (a.tg) { const want = Math.atan2(a.tg.y - a.y, a.tg.x - a.x); let da = want - a.a; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU; a.a += clamp(da, -7.5 * dt, 7.5 * dt); a.vx = Math.cos(a.a) * 470; a.vy = Math.sin(a.a) * 470; }
     }
     a.x += a.vx * dt; a.y += a.vy * dt; a.life -= dt;
@@ -3909,7 +3908,7 @@ BATTLES.infinite = {
 };
 CHAPTERS.push({ no: '∞', n: '無限之戰', en: 'ENDLESS WAR', battles: ['infinite'], long: 1, endless: 1 });
 
-const INF_STACK = ['atk', 'aspd', 'hp'];   // these blessings never run out in the endless war
+const INF_STACK = ['atk', 'mighty'];   // Ares' fury and the giant's body never run out in the endless war; every other blessing has its normal cap
 const INF_TIERS = [
   ['spartoi', 'shade', 'shadeW', 'wisp', 'bigHound'],
   ['shadeW', 'hound', 'spartoi', 'wisp', 'bigHound'],
@@ -4008,11 +4007,18 @@ async function infPrep(L, cb) {
   if (G !== g0 || MODE !== 'battle') return;
   cb();
 }
-// after a boss falls: a god arrives (while gods are left), later every boss gives more of the endless stacking blessings
+// after a boss falls: the first three bosses each bring a different great god (Lv 1); later bosses add one level to a god,
+// and once all three gods are at Lv 3 every boss gives more of the endless stacking blessings
 function infReward(cb) {
-  if (EPICS.some(k => !G.epics.includes(k))) { godReward(cb); return; }
   stopLoop(); battleDraw(); IN.active = false;
-  revealOne('atk', 'ENDLESS BOON', '魔王倒下，戰神賜你更強的戰意！', () => revealOne('hp', 'ENDLESS BOON', '大力士賜你更多的生命！', cb, true), true);
+  const free = EPICS.filter(k => !G.epics.includes(k)), up = G.epics.filter(k => st(k) < SK[k].max);
+  const k = free.length ? pick(free) : up.length ? pick(up) : null;
+  if (k) {
+    const isNew = !G.epics.includes(k);
+    revealOne(k, isNew ? 'A GOD DESCENDS' : 'EPIC POWER', isNew ? SK[k].god + '被你的勇氣打動，加入戰鬥！（Lv 1）' : SK[k].god + '的力量變得更強了！', () => { if (!G.epics.includes(k)) { G.epics.push(k); G.epic = G.epics[0]; paintEpicHud(); } cb(); }, true);
+    return;
+  }
+  revealOne('atk', 'ENDLESS BOON', '魔王倒下，戰神賜你更強的戰意！', () => revealOne('mighty', 'ENDLESS BOON', '大地之母賜你巨人的力量！', cb, true), true);
 }
 function infAfterBoss() {
   const idx = G.wave, L = G.leg + 1;
@@ -5570,7 +5576,7 @@ $('cards').addEventListener('click', e => { const b = e.target.closest('.card');
 function applySkill(k) {
   G.skills[k] = (G.skills[k] || 0) + 1; if (!G.order.includes(k) && k !== 'nectar') G.order.push(k);
   if (k === 'hp') { const add = G.D.php * .25; P.max += add; P.hp += add; }
-  if (k === 'mighty') { const add = G.D.php * .2; P.max += add; P.hp += add; P.r = 10 * (1 + .12 * st('mighty')); }
+  if (k === 'mighty') { const add = G.D.php * .2; P.max += add; P.hp += add; P.r = 10 * (1 + .12 * Math.min(3, st('mighty'))); }
   if (k === 'nectar') heal(P.max * .4);
   if (k === 'apollo') { heal(P.max * .3); P.regenT = 3; }
   if (k === 'shield') G.tm.gold = Math.min(G.tm.gold, 2.5);
