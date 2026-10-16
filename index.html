@@ -436,7 +436,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.4.1';
+const VER = 'v0.4.2';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -2316,9 +2316,9 @@ function shootArrow(x, y, a, dmg) {
   }
   G.arrows.push(A);
 }
-function hurtPlayer(dmg, src) {
+function hurtPlayer(dmg, src, cap) {
   if (P.inv > 0 || P.gold > 0 || G.phase === 'won' || G.phase === 'talk' || G.phase === 'bossIntro' || G.phase === 'advance') return false;
-  dmg *= G.D.dmg * chTune().dmg; P.hp -= dmg; G.dmgTaken += dmg; P.inv = .8; P.flash = .25; G.shake = .22; SFX.hurt();
+  dmg *= G.D.dmg * chTune().dmg; if (cap) dmg = Math.min(dmg, cap); P.hp -= dmg; G.dmgTaken += dmg; P.inv = .8; P.flash = .25; G.shake = .22; SFX.hurt();
   if (P.hp <= 0) { P.hp = 0; playerDown(); }
   return true;
 }
@@ -2911,7 +2911,8 @@ function updateZones(dt) {
   for (let i = G.rings.length - 1; i >= 0; i--) {
     const r = G.rings[i]; r.r += r.sp * dt;
     if (r.r > r.R) { G.rings.splice(i, 1); continue; }
-    if (!r.hit) { const d = Math.hypot(P.x - r.x, P.y - r.y); if (Math.abs(d - r.r) < 13) { r.hit = true; hurtPlayer(r.dmg); } }
+    if (!r.hit) { const d = Math.hypot(P.x - r.x, P.y - r.y); if (Math.abs(d - r.r) < 13) { r.hit = true; hurtPlayer(r.dmg, 0, 20); } }   // shockwaves are hard to dodge, so they never hurt for more than 20
+   
   }
 }
 function inLane(x, y, z) { const c = Math.cos(z.a), s = Math.sin(z.a), rx = x - z.x, ry = y - z.y, al = rx * c + ry * s, pe = -rx * s + ry * c; return al > -8 && al < z.len && Math.abs(pe) < z.w / 2 + 4; }
