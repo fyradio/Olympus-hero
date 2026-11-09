@@ -436,7 +436,7 @@ h2.t{margin:0;font:900 clamp(24px,7vw,32px)/1.2 var(--f-display);letter-spacing:
 (() => {
 'use strict';
 // ───────────── 01 · helpers, storage, settings ─────────────
-const VER = 'v0.4.2';
+const VER = 'v0.4.3';
 const LW = 360, LH = 640;               // logical battlefield size (portrait)
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -5737,15 +5737,8 @@ $('bRepNext').onclick = () => {
   const fresh = nx.battles.filter(i => !STORE.seen[i]); startBattle(pick(fresh.length ? fresh : nx.battles));
 };
 
-// ── rest reminder (every ~20 minutes of fighting, at a natural break) ──
-function restGate(cb) {
-  if (REST.t < 1200) { cb(); return; }
-  stopLoop(); paintIcon('icRest', 'rest');
-  let left = 60; const b = $('bRestOk'); b.disabled = true; b.textContent = `休息中… ${left}`;
-  show('rest'); musicTheme('calm');
-  const iv = setInterval(() => { left--; if (left <= 0) { clearInterval(iv); b.disabled = false; b.textContent = '我休息好了'; } else b.textContent = `休息中… ${left}`; }, 1000);
-  b.onclick = () => { if (b.disabled) return; REST.t = 0; hide('rest'); cb(); };
-}
+// ── no forced rest: kids know when to stop (the old 20-minute rest screen was removed in v0.4.3) ──
+function restGate(cb) { cb(); }
 
 // ── boot ──
 function boot() {
